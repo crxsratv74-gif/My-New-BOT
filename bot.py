@@ -7,19 +7,20 @@ from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
-# Load environment variables (works both locally and on Render)
+# Load environment variables from .env (for local testing) or system env (for Render)
 load_dotenv()
 
-# Logging
+# Set up logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------
-# 1. Read all tokens from environment variables (BOT_TOKENS_1, BOT_TOKENS_2, ...)
-# ---------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# 1. Read all bot tokens from environment variables
+#    Variables should be named: BOT_TOKENS_1, BOT_TOKENS_2, ...
+# ----------------------------------------------------------------------
 BOT_TOKENS = []
 for key, value in os.environ.items():
     if key.startswith("BOT_TOKENS_") and value.strip():
@@ -33,9 +34,9 @@ if not BOT_TOKENS:
 
 logger.info(f"Loaded {len(BOT_TOKENS)} bot token(s).")
 
-# ---------------------------------------------------------------------
-# 2. Menu Keyboard (exactly as in the screenshot)
-# ---------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# 2. Build the inline keyboard menu (as seen in the screenshot)
+# ----------------------------------------------------------------------
 def build_menu_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton("🔹 Trial v4.6", callback_data="trial")],
@@ -48,9 +49,9 @@ def build_menu_keyboard() -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(buttons)
 
-# ---------------------------------------------------------------------
-# 3. Handlers
-# ---------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# 3. Handlers for /start and button callbacks
+# ----------------------------------------------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_text = (
         "👋 *Welcome Back, Legend — Ready to dominate?*\n\n"
@@ -84,22 +85,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         parse_mode="Markdown",
     )
 
-# ---------------------------------------------------------------------
-# 4. Bot factory
-# ---------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# 4. Create a bot application for each token
+# ----------------------------------------------------------------------
 def create_bot_app(token: str) -> Application:
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_callback))
     return app
 
-# ---------------------------------------------------------------------
-# 5. Run multiple bots – keeps the event loop alive
-# ---------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# 5. Run all bots concurrently – with graceful error handling
+# ----------------------------------------------------------------------
 async def run_bots() -> None:
     successful_apps: List[Application] = []
 
-    # Initialize each bot
+    # Initialize each bot (this validates the token)
     for i, token in enumerate(BOT_TOKENS, start=1):
         try:
             app = create_bot_app(token)
@@ -113,7 +114,7 @@ async def run_bots() -> None:
         logger.error("No bots could be initialized. Exiting.")
         return
 
-    # Start each bot (background polling)
+    # Start each bot (polling in the background)
     for app in successful_apps:
         try:
             await app.start()
@@ -132,7 +133,7 @@ async def run_bots() -> None:
     # Keep the event loop alive until interrupted
     stop_event = asyncio.Event()
     try:
-        await stop_event.wait()
+        await stop_event.wait()   # waits forever
     except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
         logger.info("Shutdown signal received. Stopping bots...")
     finally:
@@ -141,9 +142,9 @@ async def run_bots() -> None:
             await app.shutdown()
         logger.info("All bots stopped.")
 
-# ---------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # 6. Entry point
-# ---------------------------------------------------------------------
+# ----------------------------------------------------------------------
 def main() -> None:
     try:
         asyncio.run(run_bots())
