@@ -7,10 +7,8 @@ from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
-# Load environment variables
 load_dotenv()
 
-# Logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -18,7 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------
-# 1. Read all bot tokens from environment (BOT_TOKENS_1, BOT_TOKENS_2, ...)
+# 1. Read tokens from environment (BOT_TOKENS_1, BOT_TOKENS_2, ...)
 # ----------------------------------------------------------------------
 BOT_TOKENS = []
 for key, value in os.environ.items():
@@ -26,15 +24,12 @@ for key, value in os.environ.items():
         BOT_TOKENS.append(value.strip())
 
 if not BOT_TOKENS:
-    raise ValueError(
-        "No BOT_TOKENS_* found in environment. "
-        "Please add at least one token like BOT_TOKENS_1=your_token"
-    )
+    raise ValueError("No BOT_TOKENS_* found in environment. Add at least one.")
 
 logger.info(f"Loaded {len(BOT_TOKENS)} bot token(s).")
 
 # ----------------------------------------------------------------------
-# 2. Build the inline keyboard menu
+# 2. Menu and handlers (unchanged)
 # ----------------------------------------------------------------------
 def build_menu_keyboard() -> InlineKeyboardMarkup:
     buttons = [
@@ -48,9 +43,6 @@ def build_menu_keyboard() -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(buttons)
 
-# ----------------------------------------------------------------------
-# 3. Handlers
-# ----------------------------------------------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_text = (
         "👋 *Welcome Back, Legend — Ready to dominate?*\n\n"
@@ -65,7 +57,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-
     data = query.data
     responses = {
         "trial": "⚡ *Trial v4.6*\nYou are currently using the trial version. Upgrade to Premium for full features.",
@@ -76,7 +67,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "support": "💬 *Support*\nContact our support team:\nEmail: support@devil.com\nTelegram: @DevilSupport",
         "language": "🌐 *Language*\nChoose your language:\n🇬🇧 English\n🇪🇸 Spanish\n🇫🇷 French\n(More coming soon)",
     }
-
     text = responses.get(data, "Unknown option.")
     await query.edit_message_text(
         text,
@@ -84,9 +74,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         parse_mode="Markdown",
     )
 
-# ----------------------------------------------------------------------
-# 4. Create a bot application
-# ----------------------------------------------------------------------
 def create_bot_app(token: str) -> Application:
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", start))
@@ -94,43 +81,47 @@ def create_bot_app(token: str) -> Application:
     return app
 
 # ----------------------------------------------------------------------
-# 5. Run all bots – FIXED (no explicit initialize)
+# 3. Run all bots using run_polling() – works correctly with asyncio
 # ----------------------------------------------------------------------
 async def run_bots() -> None:
-    running_apps: List[Application] = []
-
+    apps: List[Application] = []
     for i, token in enumerate(BOT_TOKENS, start=1):
         try:
             app = create_bot_app(token)
-            # Start the bot – this internally calls initialize() and starts polling
-            await app.start()
-            # Verify by getting the bot's username
-            username = (await app.bot.get_me()).username
-            logger.info(f"✅ Bot #{i} (@{username}) started successfully.")
-            running_apps.append(app)
+            apps.append(app)
+            logger.info(f"✅ Bot #{i} created.")
         except Exception as e:
-            logger.error(f"❌ Bot #{i} failed to start: {e}. Skipping.")
+            logger.error(f"❌ Bot #{i} creation failed: {e}")
 
-    if not running_apps:
-        logger.error("No bots could be started. Exiting.")
+    if not apps:
+        logger.error("No bots to run. Exiting.")
         return
 
-    logger.info(f"All {len(running_apps)} bot(s) are now running. Press Ctrl+C to stop.")
+    # Start each bot's polling loop concurrently
+    # run_polling() will handle initialization, start, and cleanup
+    tasks = []
+    for app in apps:
+        # We use return_exceptions so one failure doesn't stop others
+        tasks.append(asyncio.create_task(app.run_polling()))
 
-    # Keep the event loop alive
-    stop_event = asyncio.Event()
+    logger.info(f"Starting {len(tasks)} bot(s). Press Ctrl+C to stop.")
     try:
-        await stop_event.wait()
-    except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
+        # Wait for all tasks, but don't raise on first exception
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"Bot #{i+1} stopped with error: {result}")
+    except (KeyboardInterrupt, SystemExit):
         logger.info("Shutdown signal received. Stopping bots...")
     finally:
-        for app in running_apps:
+        # Cleanly stop all apps
+        for app in apps:
             await app.stop()
             await app.shutdown()
         logger.info("All bots stopped.")
 
 # ----------------------------------------------------------------------
-# 6. Entry point
+# 4. Entry point
 # ----------------------------------------------------------------------
 def main() -> None:
     try:
