@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
-# Load environment variables (only for local testing – Render sets them via dashboard)
+# Load environment variables (works both locally and on Render)
 load_dotenv()
 
 # Logging
@@ -34,7 +34,7 @@ if not BOT_TOKENS:
 logger.info(f"Loaded {len(BOT_TOKENS)} bot token(s).")
 
 # ---------------------------------------------------------------------
-# 2. Menu Keyboard (as shown in the screenshot)
+# 2. Menu Keyboard (exactly as in the screenshot)
 # ---------------------------------------------------------------------
 def build_menu_keyboard() -> InlineKeyboardMarkup:
     buttons = [
@@ -97,14 +97,13 @@ def create_bot_app(token: str) -> Application:
 # 5. Run multiple bots – keeps the event loop alive
 # ---------------------------------------------------------------------
 async def run_bots() -> None:
-    """Initialize and start all bots; skip those that fail, then wait."""
     successful_apps: List[Application] = []
 
     # Initialize each bot
     for i, token in enumerate(BOT_TOKENS, start=1):
         try:
             app = create_bot_app(token)
-            await app.initialize()          # validates token, sets up networking
+            await app.initialize()
             successful_apps.append(app)
             logger.info(f"✅ Bot #{i} initialized successfully.")
         except Exception as e:
@@ -133,7 +132,7 @@ async def run_bots() -> None:
     # Keep the event loop alive until interrupted
     stop_event = asyncio.Event()
     try:
-        await stop_event.wait()   # waits forever
+        await stop_event.wait()
     except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
         logger.info("Shutdown signal received. Stopping bots...")
     finally:
