@@ -7,10 +7,10 @@ from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
-# Load environment variables from .env (for local testing) or system env (for Render)
+# Load environment variables
 load_dotenv()
 
-# Set up logging
+# Logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -18,8 +18,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------
-# 1. Read all bot tokens from environment variables
-#    Variables should be named: BOT_TOKENS_1, BOT_TOKENS_2, ...
+# 1. Read all bot tokens from environment (BOT_TOKENS_1, BOT_TOKENS_2, ...)
 # ----------------------------------------------------------------------
 BOT_TOKENS = []
 for key, value in os.environ.items():
@@ -35,7 +34,7 @@ if not BOT_TOKENS:
 logger.info(f"Loaded {len(BOT_TOKENS)} bot token(s).")
 
 # ----------------------------------------------------------------------
-# 2. Build the inline keyboard menu (as seen in the screenshot)
+# 2. Build the inline keyboard menu
 # ----------------------------------------------------------------------
 def build_menu_keyboard() -> InlineKeyboardMarkup:
     buttons = [
@@ -50,7 +49,7 @@ def build_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 # ----------------------------------------------------------------------
-# 3. Handlers for /start and button callbacks
+# 3. Handlers
 # ----------------------------------------------------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_text = (
@@ -86,7 +85,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
 # ----------------------------------------------------------------------
-# 4. Create a bot application for each token
+# 4. Create a bot application
 # ----------------------------------------------------------------------
 def create_bot_app(token: str) -> Application:
     app = Application.builder().token(token).build()
@@ -95,49 +94,37 @@ def create_bot_app(token: str) -> Application:
     return app
 
 # ----------------------------------------------------------------------
-# 5. Run all bots concurrently – with graceful error handling
+# 5. Run all bots – FIXED (no explicit initialize)
 # ----------------------------------------------------------------------
 async def run_bots() -> None:
-    successful_apps: List[Application] = []
+    running_apps: List[Application] = []
 
-    # Initialize each bot (this validates the token)
     for i, token in enumerate(BOT_TOKENS, start=1):
         try:
             app = create_bot_app(token)
-            await app.initialize()
-            successful_apps.append(app)
-            logger.info(f"✅ Bot #{i} initialized successfully.")
-        except Exception as e:
-            logger.error(f"❌ Bot #{i} failed to initialize: {e}. Skipping.")
-
-    if not successful_apps:
-        logger.error("No bots could be initialized. Exiting.")
-        return
-
-    # Start each bot (polling in the background)
-    for app in successful_apps:
-        try:
+            # Start the bot – this internally calls initialize() and starts polling
             await app.start()
+            # Verify by getting the bot's username
             username = (await app.bot.get_me()).username
-            logger.info(f"✅ Bot @{username} started polling.")
+            logger.info(f"✅ Bot #{i} (@{username}) started successfully.")
+            running_apps.append(app)
         except Exception as e:
-            logger.error(f"❌ Failed to start bot: {e}. Removing from list.")
-            successful_apps.remove(app)
+            logger.error(f"❌ Bot #{i} failed to start: {e}. Skipping.")
 
-    if not successful_apps:
+    if not running_apps:
         logger.error("No bots could be started. Exiting.")
         return
 
-    logger.info(f"All {len(successful_apps)} bot(s) are now running. Press Ctrl+C to stop.")
+    logger.info(f"All {len(running_apps)} bot(s) are now running. Press Ctrl+C to stop.")
 
-    # Keep the event loop alive until interrupted
+    # Keep the event loop alive
     stop_event = asyncio.Event()
     try:
-        await stop_event.wait()   # waits forever
+        await stop_event.wait()
     except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
         logger.info("Shutdown signal received. Stopping bots...")
     finally:
-        for app in successful_apps:
+        for app in running_apps:
             await app.stop()
             await app.shutdown()
         logger.info("All bots stopped.")
